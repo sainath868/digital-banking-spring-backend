@@ -51,6 +51,7 @@ public class BankAccountServiceImpl implements BankAccountService {
         currentAccount.setBalance(initialBalance);
         currentAccount.setOverDraft(overDraft);
         currentAccount.setCustomer(customer);
+        currentAccount.setStatus(org.sid.ebankingbackend.enums.AccountStatus.CREATED);
         CurrentAccount savedBankAccount = bankAccountRepository.save(currentAccount);
         return dtoMapper.fromCurrentBankAccount(savedBankAccount);
     }
@@ -66,6 +67,7 @@ public class BankAccountServiceImpl implements BankAccountService {
         savingAccount.setBalance(initialBalance);
         savingAccount.setInterestRate(interestRate);
         savingAccount.setCustomer(customer);
+        savingAccount.setStatus(org.sid.ebankingbackend.enums.AccountStatus.CREATED);
         SavingAccount savedBankAccount = bankAccountRepository.save(savingAccount);
         return dtoMapper.fromSavingBankAccount(savedBankAccount);
     }
@@ -105,6 +107,11 @@ public class BankAccountServiceImpl implements BankAccountService {
         BankAccount bankAccount=bankAccountRepository.findById(accountId)
                 .orElseThrow(()->new BankAccountNotFoundException("BankAccount not found"));
         
+        // Check if account is active
+        if (bankAccount.getStatus() != org.sid.ebankingbackend.enums.AccountStatus.ACTIVATED) {
+            throw new IllegalStateException("Account is not active. Current status: " + bankAccount.getStatus());
+        }
+        
         // Check available balance considering overdraft for CurrentAccount
         double availableBalance = bankAccount.getBalance();
         if (bankAccount instanceof CurrentAccount) {
@@ -129,6 +136,12 @@ public class BankAccountServiceImpl implements BankAccountService {
     public void credit(String accountId, double amount, String description) throws BankAccountNotFoundException {
         BankAccount bankAccount=bankAccountRepository.findById(accountId)
                 .orElseThrow(()->new BankAccountNotFoundException("BankAccount not found"));
+        
+        // Check if account is active
+        if (bankAccount.getStatus() != org.sid.ebankingbackend.enums.AccountStatus.ACTIVATED) {
+            throw new IllegalStateException("Account is not active. Current status: " + bankAccount.getStatus());
+        }
+        
         AccountOperation accountOperation=new AccountOperation();
         accountOperation.setType(OperationType.CREDIT);
         accountOperation.setAmount(amount);
@@ -152,6 +165,14 @@ public class BankAccountServiceImpl implements BankAccountService {
                 .orElseThrow(()->new BankAccountNotFoundException("Source account not found"));
         BankAccount destinationAccount = bankAccountRepository.findById(accountIdDestination)
                 .orElseThrow(()->new BankAccountNotFoundException("Destination account not found"));
+        
+        // Check if both accounts are active
+        if (sourceAccount.getStatus() != org.sid.ebankingbackend.enums.AccountStatus.ACTIVATED) {
+            throw new IllegalStateException("Source account is not active. Current status: " + sourceAccount.getStatus());
+        }
+        if (destinationAccount.getStatus() != org.sid.ebankingbackend.enums.AccountStatus.ACTIVATED) {
+            throw new IllegalStateException("Destination account is not active. Current status: " + destinationAccount.getStatus());
+        }
         
         // Check available balance considering overdraft for CurrentAccount
         double availableBalance = sourceAccount.getBalance();

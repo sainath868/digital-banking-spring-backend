@@ -10,7 +10,7 @@ import javax.validation.Valid;
 import java.util.List;
 
 @RestController
-@CrossOrigin("*")
+@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:4200"}, maxAge = 3600)
 public class BankAccountRestAPI {
     private BankAccountService bankAccountService;
 
