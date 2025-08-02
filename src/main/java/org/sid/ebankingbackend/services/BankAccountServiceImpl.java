@@ -104,7 +104,15 @@ public class BankAccountServiceImpl implements BankAccountService {
     public void debit(String accountId, double amount, String description) throws BankAccountNotFoundException, BalanceNotSufficientException {
         BankAccount bankAccount=bankAccountRepository.findById(accountId)
                 .orElseThrow(()->new BankAccountNotFoundException("BankAccount not found"));
-        if(bankAccount.getBalance()<amount)
+        
+        // Check available balance considering overdraft for CurrentAccount
+        double availableBalance = bankAccount.getBalance();
+        if (bankAccount instanceof CurrentAccount) {
+            CurrentAccount currentAccount = (CurrentAccount) bankAccount;
+            availableBalance += currentAccount.getOverDraft();
+        }
+        
+        if(availableBalance < amount)
             throw new BalanceNotSufficientException("Balance not sufficient");
         AccountOperation accountOperation=new AccountOperation();
         accountOperation.setType(OperationType.DEBIT);
@@ -134,8 +142,56 @@ public class BankAccountServiceImpl implements BankAccountService {
 
     @Override
     public void transfer(String accountIdSource, String accountIdDestination, double amount) throws BankAccountNotFoundException, BalanceNotSufficientException {
-        debit(accountIdSource,amount,"Transfer to "+accountIdDestination);
-        credit(accountIdDestination,amount,"Transfer from "+accountIdSource);
+        // Prevent self-transfer
+        if (accountIdSource.equals(accountIdDestination)) {
+            throw new IllegalArgumentException("Cannot transfer to the same account");
+        }
+        
+        // Validate both accounts exist before starting the transfer
+        BankAccount sourceAccount = bankAccountRepository.findById(accountIdSource)
+                .orElseThrow(()->new BankAccountNotFoundException("Source account not found"));
+        BankAccount destinationAccount = bankAccountRepository.findById(accountIdDestination)
+                .orElseThrow(()->new BankAccountNotFoundException("Destination account not found"));
+        
+        // Check available balance considering overdraft for CurrentAccount
+        double availableBalance = sourceAccount.getBalance();
+        if (sourceAccount instanceof CurrentAccount) {
+            CurrentAccount currentAccount = (CurrentAccount) sourceAccount;
+            availableBalance += currentAccount.getOverDraft();
+        }
+        
+        if(availableBalance < amount)
+            throw new BalanceNotSufficientException("Balance not sufficient");
+        
+        // Perform atomic transfer operations
+        try {
+            // Debit from source
+            AccountOperation debitOperation = new AccountOperation();
+            debitOperation.setType(OperationType.DEBIT);
+            debitOperation.setAmount(amount);
+            debitOperation.setDescription("Transfer to " + accountIdDestination);
+            debitOperation.setOperationDate(new Date());
+            debitOperation.setBankAccount(sourceAccount);
+            accountOperationRepository.save(debitOperation);
+            sourceAccount.setBalance(sourceAccount.getBalance() - amount);
+            bankAccountRepository.save(sourceAccount);
+            
+            // Credit to destination
+            AccountOperation creditOperation = new AccountOperation();
+            creditOperation.setType(OperationType.CREDIT);
+            creditOperation.setAmount(amount);
+            creditOperation.setDescription("Transfer from " + accountIdSource);
+            creditOperation.setOperationDate(new Date());
+            creditOperation.setBankAccount(destinationAccount);
+            accountOperationRepository.save(creditOperation);
+            destinationAccount.setBalance(destinationAccount.getBalance() + amount);
+            bankAccountRepository.save(destinationAccount);
+            
+        } catch (Exception e) {
+            // If any operation fails, the @Transactional annotation will rollback the entire transaction
+            log.error("Transfer failed between {} and {}: {}", accountIdSource, accountIdDestination, e.getMessage());
+            throw e;
+        }
     }
     @Override
     public List<BankAccountDTO> bankAccountList(){
